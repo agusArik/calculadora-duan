@@ -1,137 +1,52 @@
-#include "lexer.h"
-#include <ctype.h>
-#include <stddef.h>
+#include "ast.h"
+#include "evaluador.h"
+#include "parser.h"
 #include <stdio.h>
 
-static char pico(Lexer *lexer) {
-  return *lexer->current;
-} // mira el token actual
-
-static char avanzar(Lexer *lexer) {
-  char c = *lexer->current;
-  lexer->current++;
-  return c;
-}
-
-static int es_fin(Lexer *lexer) { return *lexer->current == '\0'; }
-
-static Token crear_token(Lexer *lexer, TokenType tipo) {
-  Token token;
-  token.tipo = tipo;
-  token.lexema.data = lexer->start;
-  token.lexema.count = (size_t)(lexer->current - lexer->start);
-  return token;
-};
-
-Token siguiente_token(Lexer *lexer) {
-  while (!es_fin(lexer) && isspace(pico(lexer))) {
-    avanzar(lexer);
-  }
-  lexer->start = lexer->current;
-
-  if (es_fin(lexer)) {
-    return crear_token(lexer, TokenType_EOF);
-  }
-
-  char c = avanzar(lexer);
-
-  if (isdigit(c)) {
-    while (!es_fin(lexer) && isdigit(pico(lexer))) {
-      avanzar(lexer);
-    }
-    if (!es_fin(lexer) && pico(lexer) == '.') {
-      avanzar(lexer);
-      while (!es_fin(lexer) && isdigit(pico(lexer))) {
-        avanzar(lexer);
-      }
-    }
-    return crear_token(lexer, TokenType_Number);
-  }
-
-  if (isalpha(c) || c == '_') {
-    while (!es_fin(lexer) && (isalnum(pico(lexer)) || pico(lexer) == '_')) {
-      avanzar(lexer);
-    }
-    return crear_token(lexer, TokenType_Ident);
-  }
-
-  switch (c) {
-  case '+':
-    return crear_token(lexer, TokenType_Plus);
-  case '-':
-    return crear_token(lexer, TokenType_Minus);
-  case '*':
-    return crear_token(lexer, TokenType_Star);
-  case '/':
-    return crear_token(lexer, TokenType_Slash);
-  case '%':
-    return crear_token(lexer, TokenType_Percent);
-  case '^':
-    return crear_token(lexer, TokenType_Caret);
-  case '=':
-    return crear_token(lexer, TokenType_Equals);
-  case '(':
-    return crear_token(lexer, TokenType_OpenParenthesis);
-  case ')':
-    return crear_token(lexer, TokenType_CloseParenthesis);
-  case ',':
-    return crear_token(lexer, TokenType_Comma);
-  }
-
-  return crear_token(lexer, TokenType_Error);
-}
-
-static const char *nombre_token(TokenType tipo) {
-  switch (tipo) {
-  case TokenType_Error:
-    return "ERROR";
-  case TokenType_EOF:
-    return "EOF";
-  case TokenType_Ident:
-    return "IDENT";
-  case TokenType_Number:
-    return "NUMBER";
-  case TokenType_Plus:
-    return "PLUS";
-  case TokenType_Minus:
-    return "MINUS";
-  case TokenType_Star:
-    return "STAR";
-  case TokenType_Slash:
-    return "SLASH";
-  case TokenType_Percent:
-    return "PERCENT";
-  case TokenType_Caret:
-    return "CARET";
-  case TokenType_Equals:
-    return "EQUALS";
-  case TokenType_OpenParenthesis:
-    return "OPEN_PAREN";
-  case TokenType_CloseParenthesis:
-    return "CLOSE_PAREN";
-  case TokenType_Comma:
-    return "COMMA";
-  default:
-    return "UNKNOWN";
-  }
-}
-
 int main(void) {
-  char entrada[100];
-  printf("Ingrese ecuación:\n");
-  fgets(entrada, sizeof(entrada), stdin);
-  size_t len = strlen(entrada);
-  if (len > 0 && entrada[len - 1] == '\n') {
-    entrada[len - 1] = '\0';
+  char entrada[256];
+  char error[128];
+  Entorno env;
+  entorno_iniciar(&env);
+
+  printf("Calculadora. Ejemplos: 1 + 2 * 3   x = 2^10   max(x, 5) / 2\n");
+  printf("Ctrl+D o 'salir' para terminar.\n");
+
+  for (;;) {
+    printf("> ");
+    if (fgets(entrada, sizeof(entrada), stdin) == NULL) {
+      break; // fin de la entrada (Ctrl+D)
+    }
+    size_t len = strlen(entrada);
+    if (len > 0 && entrada[len - 1] == '\n') {
+      entrada[len - 1] = '\0';
+    }
+    if (strcmp(entrada, "salir") == 0) {
+      break;
+    }
+    if (entrada[0] == '\0') {
+      continue;
+    }
+
+    Nodo *arbol = parsear(entrada, error, sizeof(error));
+    if (arbol == NULL) {
+      printf("Error de sintaxis: %s\n", error);
+      continue;
+    }
+
+    ast_imprimir(arbol);
+
+    env.error = NULL;
+    double resultado = evaluar(arbol, &env);
+    if (env.error) {
+      printf("Error: %s\n", env.error);
+    } else {
+      printf("= %g\n", resultado);
+    }
+
+    ast_liberar(arbol);
   }
 
-  Lexer lexer = {.start = entrada, .current = entrada};
-  Token token;
-  do {
-    token = siguiente_token(&lexer);
-    printf("%-12s '%.*s'\n", nombre_token(token.tipo), (int)token.lexema.count,
-           token.lexema.data);
-  } while (token.tipo != TokenType_EOF);
-
+  entorno_liberar(&env);
   return 0;
 }
